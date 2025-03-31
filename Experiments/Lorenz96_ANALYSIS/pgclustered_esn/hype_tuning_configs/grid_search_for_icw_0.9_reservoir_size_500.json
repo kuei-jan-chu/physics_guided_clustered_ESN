@@ -1,0 +1,10 @@
+{
+    "exp_name": "grid-search-for-nonlinearity&icw_0.9_reservoir_size_500-pgclustered_esn",                     
+    "instances_per_trial": 5, 
+    "hp_search_method": "grid_search",         
+    "hp_space": {                             
+        "radius": [0.1, 0.4, 0.7, 0.9, 0.99],   
+        "sigma_input": [0.1, 0.5, 1.0, 1.5, 2.0],
+        "in_cluster_weight": [0.9]
+    }
+}

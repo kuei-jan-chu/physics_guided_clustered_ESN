@@ -1,0 +1,11 @@
+{
+    "exp_name": "hyper-tuning-asym_pgclustered_esn",                     
+    "instances_per_trial": 5,        
+    "hp_space": {                             
+        "radius": [0.1, 0.3, 0.5, 0.7, 0.9, 0.99, 1.1, 1.3],   
+        "sigma_input": [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5],          
+        "regularization": [1e-2],  
+        "in_cluster_weight": [0.5],    
+        "noise_level":[5]
+    }
+}
