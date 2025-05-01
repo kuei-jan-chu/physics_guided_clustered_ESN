@@ -1,7 +1,6 @@
 import json
 from math import e
 from os import path
-from functools import partial
 import os
 import pickle
 import random
@@ -56,57 +55,7 @@ def _getLossMetric(model, metric):
         return - model.num_accurate_pred_1_avg_TEST
     else: 
         return e
-    
-def _parse_config(config):
-    # required_args = ["exp_name", "hp_search_max_num", "hp_search_method", "hp_space"]
-    # for arg in required_args:
-    #     if config.get(arg) is None:
-    #         raise ValueError(f"No {arg} argument found in config file.")
-    if config["hp_search_method"] not in ["tpe", "random", "atpe", "anneal", "grid_search"]:
-        raise ValueError(
-            f"Unknow hyperopt algorithm: {config['hp_search_method']}. "
-            "Available algorithms: 'random', 'tpe'."
-        )
-    if config["hp_search_method"] in ["tpe", "random", "atpe", "anneal"]:
-        # create a new version of hopt functions, with some arguments pre-filled, so easier to reuse it in a configuration.
-        if config["hp_search_method"] == "random":
-            config["hp_search_method"] = partial(hopt.rand.suggest)
-        if config["hp_search_method"] == "tpe":
-            config["hp_search_method"] = partial(hopt.tpe.suggest)
-        if config["hp_search_method"] == "atpe":
-            config["hp_search_method"] = partial(hopt.atpe.suggest)
-        if config["hp_search_method"] == "anneal":
-            config["hp_search_method"] = partial(hopt.anneal.suggest)
-        space = {}
-        for arg, specs in config["hp_space"].items():
-            space[arg] = _parse_hyperopt_searchspace(arg, specs)
-        config["hp_space"] = space
-    # else do nothing for grid search
 
-    return config
-
-
-def _parse_hyperopt_searchspace(arg, specs):
-    if specs[0] == "choice":
-        return hopt.hp.choice(arg, specs[1:])
-    if specs[0] == "randint":
-        return hopt.hp.randint(arg, *specs[1:])
-    if specs[0] == "uniform":
-        return hopt.hp.uniform(arg, *specs[1:])
-    if specs[0] == "quniform":
-        return hopt.hp.quniform(arg, *specs[1:])
-    if specs[0] == "loguniform":
-        return hopt.hp.loguniform(arg, np.log(specs[1]), np.log(specs[2]))
-    if specs[0] == "qloguniform":
-        return hopt.hp.qloguniform(arg, np.log(specs[1]), np.log(specs[2]), specs[3])
-    if specs[0] == "normal":
-        return hopt.hp.normal(arg, *specs[1:])
-    if specs[0] == "qnormal":
-        return hopt.hp.qnormal(arg, *specs[1:])
-    if specs[0] == "lognormal":
-        return hopt.hp.lognormal(arg, np.log(specs[1]), np.log(specs[2]))
-    if specs[0] == "qlognormal":
-        return hopt.hp.qlognormal(arg, np.log(specs[1]), np.log(specs[2]), specs[3])
     
 def get_report_path(exp_name, base_path=None):
     base_path = "." if base_path is None else base_path
@@ -121,7 +70,7 @@ def get_conf_from_json(confpath):
         config = {}
         with open(confpath, "r") as f:
             config = json.load(f)
-        return _parse_config(config)
+        return config
         
 
 def convert_hyperopt_indices_to_values(best, search_space):
