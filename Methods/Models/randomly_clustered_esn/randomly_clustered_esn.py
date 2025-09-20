@@ -71,8 +71,9 @@ class RandClusteredESN(ESN):
             mask[start_index:end_index, start_index:end_index] = True  # Mask the cluster block
         
         sparsity_mask[~mask] = (torch.rand(size_x, size_y)[~mask] < between_clusters_sparsity)
-
+        
         W_h = W_h * sparsity_mask
+
         # Scale W to achieve the specified spectral radius
         if self.display_output: print("EIGENVALUE DECOMPOSITION")
         eigenvalues = torch.linalg.eigvals(W_h).abs()

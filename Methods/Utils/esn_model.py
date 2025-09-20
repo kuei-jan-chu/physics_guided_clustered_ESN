@@ -37,7 +37,6 @@ class ESNModel(nn.Module):
         self.W_in =  model.W_in
         self.W_h = model.W_h
         self.W_out = model.W_out
-        self.predict_phase_hidden_state_all = None
 
         self.initializeESN()
 
@@ -144,7 +143,6 @@ class ESNModel(nn.Module):
 
         target = input_sequence[dynamics_length:]
         prediction = []
-        hidden_state_all = []
         if self.display_output == True:
                 print("\nPREDICTION:")  
         for t in range(iterative_prediction_length):
@@ -154,19 +152,14 @@ class ESNModel(nn.Module):
             prediction.append(out)
             current_input = out
             hidden_state= torch.tanh(self.W_in @ current_input + self.W_h @ hidden_state) 
-            hidden_state_all.append(hidden_state)
 
         prediction_warm_up = torch.stack(prediction_warm_up)[:,:,0]
         prediction = torch.stack(prediction)[:,:,0]
-        hidden_state_all = torch.stack(hidden_state_all)[:,:,0]
 
         target_augment = input_sequence
         prediction_augment= torch.cat((prediction_warm_up, prediction), dim=0)
 
-        self.predict_phase_hidden_state_all = hidden_state_all
-
         d_step = calculateGeometricDistance(target, prediction)
 
-        return prediction, target, prediction_augment, target_augment, hidden_state_all, d_step
+        return prediction, target, prediction_augment, target_augment, d_step
     
-

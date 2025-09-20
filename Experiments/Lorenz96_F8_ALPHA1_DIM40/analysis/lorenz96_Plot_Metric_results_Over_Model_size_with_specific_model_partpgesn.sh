@@ -19,11 +19,11 @@ python3 ANALYSE.py plot_all_evaluation_results_with_one_model_have_multiple_sett
 --mode plot_all_evaluation_results_with_one_model_have_multiple_settings \
 --model_types $MODEL_TYPES \
 --experiment_name Lorenz96_F8_ALPHA1_DIM40 \
---parse_string "round_(\d+)_grid-search-(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)" \
---x_value "Reservoir Size" \
+--parse_string "round_(\d+)_grid-search-(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)_step_size_1" \
+--x_value "Reservoir size" \
 --x_value_group_num 3 \
 --specific_model_type $SPECIFIC_MODEL_TYPE \
---parse_string_for_specific_model  "round_(\d+)_grid-search-for_pwc_(.+?)-partially_pgclustered_esn_(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)" \
+--parse_string_for_specific_model  "round_(\d+)_grid-search-for_pwc_(.+?)-partially_pgclustered_esn_(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)_step_size_1" \
 --setting_value_name $SETTING_VALUE_NAME \
 --setting_value_list_for_specific_model $SETTING_VALUE_LIST \
 --setting_value_group_num_for_specific_model 2 \

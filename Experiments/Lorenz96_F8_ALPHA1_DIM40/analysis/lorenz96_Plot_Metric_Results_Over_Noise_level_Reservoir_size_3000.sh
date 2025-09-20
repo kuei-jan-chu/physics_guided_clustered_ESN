@@ -12,6 +12,6 @@ python3 ANALYSE.py plot_all_evaluation_results \
 --mode plot_all_evaluation_results \
 --model_types $MODEL_TYPES \
 --experiment_name Lorenz96_F8_ALPHA1_DIM40 \
---parse_string "round_(\d+)_(.+?)_reservoir_size_3000_NTrain_100000_Noise_(\d+)_Regularization_(\d+\.\d+)" \
+--parse_string "round_(\d+)_grid-search-(.+?)_reservoir_size_3000_NTrain_100000_Noise_(\d+)_Regularization_(\d+\.\d+)_step_size_1" \
 --x_value "Noise level" \
 --x_value_group_num 3 \

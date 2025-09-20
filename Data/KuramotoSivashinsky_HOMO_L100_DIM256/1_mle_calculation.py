@@ -32,8 +32,6 @@ dns_2  = KS(L=L, N=N, dt=dt)
 
 
 base_path = "."
-save_path = base_path + "/Figures/"
-os.makedirs(save_path, exist_ok=True)
 file_name = base_path + "/Simulation_Data/simulation_data.pickle"
 with open(file_name, "rb") as file:
     # Pickle the "data" dictionary using the highest protocol available.

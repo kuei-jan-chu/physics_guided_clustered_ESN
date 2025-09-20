@@ -26,8 +26,6 @@ F=28
 perturbation = 1e-8 
 
 base_path = "."
-save_path = base_path + "/Figures/"
-os.makedirs(save_path, exist_ok=True)
 
 file_name = base_path + "/Simulation_Data/F"+str(F)+"_data.pickle"
 with open(file_name, "rb") as file:

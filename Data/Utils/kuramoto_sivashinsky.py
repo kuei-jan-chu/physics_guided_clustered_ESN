@@ -5,21 +5,7 @@ import numpy as np
 np.seterr(over='raise', invalid='raise')
 
 class KS:
-    #
-    # Solution of the 1D Kuramoto-Sivashinsky equation
-    #
-    # u_t + u*u_x + u_xx + u_xxxx = 0,
-    # with periodic BCs on x \in [0, 2*pi*L]: u(x+2*pi*L,t) = u(x,t).
-    #
-    # The nature of the solution depends on the system size L and on the initial
-    # condition u(x,0).  Energy enters the system at long wavelengths via u_xx
-    # (an unstable diffusion term), cascades to short wavelengths due to the
-    # nonlinearity u*u_x, and dissipates via diffusion with u_xxxx.
-    #
-    # Spatial  discretization: spectral (Fourier)
-    # Temporal discretization: exponential time differencing fourth-order Runge-Kutta
-    # see AK Kassam and LN Trefethen, SISC 2005
-
+    
     def __init__(self, L=16, N=128, dt=0.25, inhomo=0, mu_inhomo=None, lambda_inhomo=None, tend=50000, t_transient=2500, norm_steps=10, num_lyaps=26, nsteps=None, iout=1):
         #
         # Initialize
@@ -59,8 +45,6 @@ class KS:
         self.setup_timeseries()
         # precompute ETDRK4 scalar quantities:
         self.setup_etdrk4()
-        # preset lyapunov exponentials:
-        self.setup_lyapunov()
 
     def setup_fourier(self, coeffs=None):
         # self.x  = 2*pi*self.L*np.r_[0:self.N]/self.N
@@ -154,62 +138,6 @@ class KS:
             self.pxx = -(self.omega ** 2) * self.p
 
 
-    def setup_lyapunov(self):
-        self.spectrum = None
-        self.ky_point = None
-        self.kydim = None
-        self.Rii = np.zeros([self.num_lyaps, (self.nsteps - self.transient_steps) // self.norm_steps])
-        self.Y, _ = np.linalg.qr(self.rng.random((self.N, self.num_lyaps)))
-
-
-    def evolve_tangent_map(self):
-        # Compute Hv
-        rifftv = np.real(ifft(self.v))
-        rifftY = np.real(ifft(self.Y))
-        if self.inhomo == True:
-            Hv = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftY) + \
-                    (1j * self.k[:, np.newaxis]) * fft(self.px[:, np.newaxis] * rifftY) + \
-                        -fft(self.pxx[:, np.newaxis] * rifftY)
-            # Compute a_ and Ha
-            a_ = self.E2[:, np.newaxis] * self.Y + self.Q[:, np.newaxis] * Hv;    riffta_ = np.real(ifft(a_))
-            Ha = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * riffta_) + \
-                (1j * self.k[:, np.newaxis]) * fft(self.px[:, np.newaxis] * rifftY) + \
-                - fft(self.pxx[:, np.newaxis] * rifftY)
-            
-            # Compute b_ and Hb
-            b_ = self.E2[:, np.newaxis] * self.Y + self.Q[:, np.newaxis] * Ha;    rifftb_ = np.real(ifft(b_))
-            Hb = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftb_) + \
-            (1j * self.k[:, np.newaxis]) * fft(self.px[:, np.newaxis] * rifftY) + \
-            - fft(self.pxx[:, np.newaxis] * rifftY)
-
-            # Compute c_ and Hc
-            c_ = self.E2[:, np.newaxis] * a_ + self.Q[:, np.newaxis] * (2 * Hb - Hv);     rifftc_ = np.real(ifft(c_))
-            Hc = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftc_) + \
-            (1j * self.k[:, np.newaxis]) * fft(self.px[:, np.newaxis] * rifftY) + \
-            - fft(self.pxx[:, np.newaxis] * rifftY)
-        else:
-            Hv = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftY)
-            # Compute a_ and Ha
-            a_ = self.E2[:, np.newaxis] * self.Y + self.Q[:, np.newaxis] * Hv;    riffta_ = np.real(ifft(a_))
-            Ha = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * riffta_) 
-
-            # Compute b_ and Hb
-            b_ = self.E2[:, np.newaxis] * self.Y + self.Q[:, np.newaxis] * Ha;    rifftb_ = np.real(ifft(b_))
-            Hb = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftb_) 
-
-            # Compute c_ and Hc
-            c_ = self.E2[:, np.newaxis] * a_ + self.Q[:, np.newaxis] * (2 * Hb - Hv);     rifftc_ = np.real(ifft(c_))
-            Hc = (-1j * self.k[:, np.newaxis]) * fft(rifftv[:, np.newaxis] * rifftc_) 
-        # Update Y
-        self.Y = self.E[:, np.newaxis] * self.Y + Hv * self.f1[:, np.newaxis] + 2 * (Ha + Hb) * self.f2[:, np.newaxis] + Hc * self.f3[:, np.newaxis]
-
-        # Normalize tangent vectors and record normalization
-        if self.nontransient_stepnum % self.norm_steps == 0:
-            matQ, matR = np.linalg.qr(rifftY)
-            self.Rii[:, self.nontransient_stepnum // self.norm_steps] = np.log(np.abs(np.diag(matR[:self.num_lyaps, :self.num_lyaps])))
-            self.Y = fft(matQ[:, :self.num_lyaps])  
-
-
     def step(self):
         #
         # Computation is based on v = fft(u), so linear term is diagonal.
@@ -230,10 +158,6 @@ class KS:
         self.v = self.E*v + Nv*self.f1 + 2.*(Na + Nb)*self.f2 + Nc*self.f3
         self.stepnum += 1
         self.t       += self.dt
-
-        if self.stepnum > self.transient_steps:
-            self.evolve_tangent_map()
-            self.nontransient_stepnum += 1
 
         return self.v
 
@@ -299,83 +223,3 @@ class KS:
         #
         # Convert from spectral to physical space
         self.uu = np.real(ifft(self.vv)).astype(np.float64)
-
-    def calculate_lyapnov_exponents(self):
-        # Compute the complex spectrum
-        complex_spectrum = np.sum(self.Rii, axis=1) / (self.nsteps * self.dt)
-        # Take the real part of the complex spectrum
-        self.spectrum = np.real(complex_spectrum)
-        # Compute the cumulative sum of the spectrum
-        spec_sum = np.cumsum(self.spectrum)
-        # Compute the absolute values of the cumulative sum
-        abs_spec_sum = np.abs(spec_sum)
-        # Find the minimum of the absolute values
-        self.ky_point = np.min(abs_spec_sum)
-        # Find the index of the first negative value in the cumulative sum
-        self.kydim = np.where(spec_sum < 0)[0][0] if np.any(spec_sum < 0) else None
-
-
-    def compute_Ek(self):
-        #
-        # compute all forms of kinetic energy
-        #
-        # Kinetic energy as a function of wavenumber and time
-        self.compute_Ek_kt()
-        # Time-averaged energy spectrum as a function of wavenumber
-        self.Ek_k = np.sum(self.Ek_kt, 0)/(self.ioutnum+1) # not self.nout because we might not be at the end; ioutnum+1 because the IC is in [0]
-        # Total kinetic energy as a function of time
-        self.Ek_t = np.sum(self.Ek_kt, 1)
-		# Time-cumulative average as a function of wavenumber and time
-        self.Ek_ktt = np.cumsum(self.Ek_kt, 0) / np.arange(1,self.ioutnum+2)[:,None] # not self.nout because we might not be at the end; ioutnum+1 because the IC is in [0] +1 more because we divide starting from 1, not zero
-		# Time-cumulative average as a function of time
-        self.Ek_tt = np.cumsum(self.Ek_t, 0) / np.arange(1,self.ioutnum+2)[:,None] # not self.nout because we might not be at the end; ioutnum+1 because the IC is in [0] +1 more because we divide starting from 1, not zero
-
-    def compute_Ek_kt(self):
-        try:
-            self.Ek_kt = 1./2.*np.real( self.vv.conj()*self.vv / self.N ) * self.dx
-        except FloatingPointError:
-            #
-            # probable overflow because the simulation exploded, try removing the last solution
-            problem=True
-            remove=1
-            self.Ek_kt = np.zeros([self.nout+1, self.N]) + 1e-313
-            while problem:
-                try:
-                    self.Ek_kt[0:self.nout+1-remove,:] = 1./2.*np.real( self.vv[0:self.nout+1-remove].conj()*self.vv[0:self.nout+1-remove] / self.N ) * self.dx
-                    problem=False
-                except FloatingPointError:
-                    remove+=1
-                    problem=True
-        return self.Ek_kt
-
-
-    def space_filter(self, k_cut=2):
-        #
-        # spatially filter the time series
-        self.uu_filt  = np.zeros([self.nout+1, self.N])
-        for n in range(self.nout+1):
-            v_filt = np.copy(self.vv[n,:])    # copy vv[n,:] (otherwise python treats it as reference and overwrites vv on the next line)
-            v_filt[np.abs(self.k)>=k_cut] = 0 # set to zero wavenumbers > k_cut
-            self.uu_filt[n,:] = np.real(ifft(v_filt))
-        #
-        # compute u_resid
-        self.uu_resid = self.uu - self.uu_filt
-
-
-    def space_filter_int(self, k_cut=2, N_int=10):
-        #
-        # spatially filter the time series
-        self.N_int        = N_int
-        self.uu_filt      = np.zeros([self.nout+1, self.N])
-        self.uu_filt_int  = np.zeros([self.nout+1, self.N_int])
-        self.x_int        = 2*pi*self.L*np.r_[0:self.N_int]/self.N_int
-        for n in range(self.nout+1):
-            v_filt = np.copy(self.vv[n,:])   # copy vv[n,:] (otherwise python treats it as reference and overwrites vv on the next line)
-            v_filt[np.abs(self.k)>=k_cut] = 313e6
-            v_filt_int = v_filt[v_filt != 313e6] * self.N_int/self.N
-            self.uu_filt_int[n,:] = np.real(ifft(v_filt_int))
-            v_filt[np.abs(self.k)>=k_cut] = 0
-            self.uu_filt[n,:] = np.real(ifft(v_filt))
-        #
-        # compute u_resid
-        self.uu_resid = self.uu - self.uu_filt

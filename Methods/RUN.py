@@ -49,9 +49,10 @@ def defineParser():
     partially_pgclustered_esn_parser = subparsers.add_parser("partially_pgclustered_esn")
     partially_pgclustered_esn_parser = getPartPGClusteredESNParser(partially_pgclustered_esn_parser)
 
-    moved_pgclustered_esn_parser = subparsers.add_parser("moved_pgclustered_esn")
-    moved_pgclustered_esn_parser = getMovedPGClusteredESNParser(moved_pgclustered_esn_parser)
 
+    auto_pgclustered_esn_parser = subparsers.add_parser("auto_pgclustered_esn")
+    auto_pgclustered_esn_parser = getAutoPGClusteredESNParser(auto_pgclustered_esn_parser)
+     
     randomly_clustered_esn_parser = subparsers.add_parser("randomly_clustered_esn")
     randomly_clustered_esn_parser = getRandomlyClusteredESNParser(randomly_clustered_esn_parser)
 

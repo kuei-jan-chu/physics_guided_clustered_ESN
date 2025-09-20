@@ -42,12 +42,6 @@ pl_max = 20000
 dns.simulate()
 # convert to physical space
 dns.fou2real()
-# calculate lyapunov expoenents
-dns.calculate_lyapnov_exponents()
-
-print(dns.spectrum)
-print(dns.ky_point)
-print(dns.kydim)
 
 u = dns.uu[ninittransients+1:]
 print("Simulated data shape: ", u.shape)

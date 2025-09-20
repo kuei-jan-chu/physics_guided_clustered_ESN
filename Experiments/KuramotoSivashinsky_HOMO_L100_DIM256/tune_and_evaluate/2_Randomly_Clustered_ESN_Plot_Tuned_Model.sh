@@ -38,7 +38,7 @@ python3 RUN.py randomly_clustered_esn \
 --hyper_tuning_config_name $CONFIG_NAME \
 --loss d_temp \
 --worker_id 0 \
---initialization_num 20 \
+--initialization_num 10 \
 --input_group_size 8 \
 --noise_level $NOISE_LEVEL \
 --regularization $REGULARIZATION \

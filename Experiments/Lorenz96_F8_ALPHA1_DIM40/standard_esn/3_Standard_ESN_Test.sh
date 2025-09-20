@@ -14,13 +14,14 @@ python3 RUN.py standard_esn \
 --RDIM 40 \
 --noise_level 5 \
 --scaler Standard \
---approx_reservoir_size 1000 \
+--approx_reservoir_size 2000 \
 --sparsity 0.1 \
 --p_in 0.1 \
---radius 0.9 \
---sigma_input 0.5 \
+--radius 0.7 \
+--sigma_input 0.1 \
 --regularization 0.01 \
 --dynamics_length 2000 \
 --iterative_prediction_length 7000 \
 --num_test_ICS 10 \
+--step_size 1 \
 

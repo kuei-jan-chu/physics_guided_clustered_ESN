@@ -56,7 +56,6 @@ for i in range(N):
     X0 = RK4(Lorenz96,X0,0,dt, F, 8);
     X[i,:] = X0
     print("{:d}/{:d}".format((i+1), N),  end="\r")
-    sys.stdout.write("\033[F")
 
 
 data = {

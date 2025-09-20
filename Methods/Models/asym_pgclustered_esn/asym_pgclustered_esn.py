@@ -71,9 +71,10 @@ class AsymPGClusteredESN(ESN):
                 W_h[start_index:end_index, coupled_cluster_start_idx:coupled_cluster_end_idx] = \
                    (1 - self.in_cluster_weight) * torch.rand(cluster_size, cluster_size)
                 
-        sparsity_mask = (torch.rand(size_x, size_y) < sparsity)  # Mask for sparsity
+        # no need of sparsity_mask as we are using coupling_dims to determine the connections
+        # sparsity_mask = (torch.rand(size_x, size_y) < sparsity)  # Mask for sparsity
+        # W_h = W_h * sparsity_mask
 
-        W_h = W_h * sparsity_mask
         # to print the values do W.A
         if self.display_output: print("EIGENVALUE DECOMPOSITION")
         eigenvalues = torch.linalg.eigvals(W_h).abs()
@@ -102,7 +103,8 @@ class AsymPGClusteredESN(ESN):
                 coupled_end_input_dim = coupled_start_input_dim + input_group_size
                 W_in[start_index:end_index, coupled_start_input_dim:coupled_end_input_dim] = (torch.rand(cluster_size, input_group_size)*2 - 1) * sigma_input
         
-        sparsity_mask = (torch.rand(reservoir_size, input_dim) < sparsity)
-        W_in = W_in * sparsity_mask
+        # no need of sparsity_mask as we are using coupling_dims to determine the connections
+        # sparsity_mask = (torch.rand(reservoir_size, input_dim) < sparsity)
+        # W_in = W_in * sparsity_mask
             
         return W_in	

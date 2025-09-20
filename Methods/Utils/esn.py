@@ -6,7 +6,6 @@
 """
 #!/usr/bin/env python
 import numpy as np
-import pickle
 from scipy import sparse as sparse
 import os
 import sys
@@ -64,8 +63,11 @@ class ESN(object):
         self.p_in = params["p_in"]
         self.radius = params["radius"]
         self.sigma_input = params["sigma_input"]
-        self.dynamics_length = params["dynamics_length"]
-        self.iterative_prediction_length = params["iterative_prediction_length"]
+        
+        self.step_size = params["step_size"]
+        self.dynamics_length = int(params["dynamics_length"]/self.step_size)
+        self.iterative_prediction_length = int(params["iterative_prediction_length"]/self.step_size)
+
         self.num_test_ICS = params["num_test_ICS"]
         self.train_data_path = params["train_data_path"]
         self.test_data_path = params["test_data_path"]
@@ -108,6 +110,7 @@ class ESN(object):
     def createModelName(self, params):
         keys = self.getKeysInModelName()
         str_ = "RNN-" + self.class_name + self.system_name
+        str_ += "-SS_{:}".format(self.step_size)
         for key in keys:
             str_ += "-" + keys[key] + "_{:}".format(params[key])
         return str_
@@ -130,24 +133,30 @@ class ESN(object):
         self.start_time = time.time()
         dynamics_length = self.dynamics_length
         input_dim = self.input_dim
-        N_used = self.N_train
+        N_used = int(self.N_train/ self.step_size)  # Adjust N_used based on step size
 
         with open(self.train_data_path, "rb") as file:
             # Pickle the "data" dictionary using the highest protocol available.
             data = pickle.load(file)
             train_input_sequence = data["train_input_sequence"]
+            if self.step_size > 1:  
+                # If step size is greater than 1, we need to downsample the input sequence
+                train_input_sequence = train_input_sequence[::self.step_size, :]
+                if self.display_output == True: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
+
             if self.display_output == True : print("Adding noise to the training data. {:} per mille ".format(self.noise_level))
             train_input_sequence = addNoise(train_input_sequence, self.noise_level)
             N_all, dim = np.shape(train_input_sequence)
             if input_dim > dim: raise ValueError("Requested input dimension is wrong.")
             train_input_sequence = train_input_sequence[:N_used, :input_dim]
             del data
+            
         if self.display_output == True : print("##Using {:}/{:} dimensions and {:}/{:} samples ##".format(input_dim, dim, N_used, N_all))
         if N_used > N_all: raise ValueError("Not enough samples in the training data.")
-        if self.display_output == True : print("SCALING")
         
+        if self.display_output == True : print("SCALING")
         train_input_sequence = self.scaler.scaleData(train_input_sequence)
-        N, input_dim = np.shape(train_input_sequence)
+
 
         # Transform input sequence to pytorch tensor with shape [sequence_length, batch_size=1, dimension] and forward the network
         # train_input_sequence = np.expand_dims(train_input_sequence, axis=1)
@@ -179,10 +188,13 @@ class ESN(object):
         torch.cuda.empty_cache()
 
     def setEsnModel(self):
+        self.W_in = torch.from_numpy(self.W_in)
+        self.W_h = torch.from_numpy(self.W_h)
+        self.W_out = torch.from_numpy(self.W_out)
         if self.gpu:
-            self.W_in = self.sendDataToCUDA(torch.from_numpy(self.W_in))
-            self.W_h = self.sendDataToCUDA(torch.from_numpy(self.W_h))
-            self.W_out = self.sendDataToCUDA(torch.from_numpy(self.W_out))
+            self.W_in = self.sendDataToCUDA(self.W_in)
+            self.W_h = self.sendDataToCUDA(self.W_h)
+            self.W_out = self.sendDataToCUDA(self.W_out)
             self.model = ESNModel(self)
             self.model = self.sendDataToCUDA(self.model)
         else:
@@ -208,7 +220,7 @@ class ESN(object):
         self.esn_mode = "test"
         if self.loadModel()==0:
             self.setEsnModel()
-            self.testOnTrainingSet()
+            # self.testOnTrainingSet()
             self.testOnTestingSet()
             self.detachEsnModel()
             torch.cuda.empty_cache()
@@ -223,14 +235,19 @@ class ESN(object):
         with open(self.train_data_path, "rb") as file:
             data = pickle.load(file)
             train_input_sequence = data["train_input_sequence"][:, :self.input_dim]
+            if self.step_size > 1:
+                # If step size is greater than 1, we need to downsample the input sequence
+                train_input_sequence = train_input_sequence[::self.step_size, :]
+                if self.display_output == True: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
             sequence_length = np.shape(train_input_sequence)[0]
-            testing_ic_indexes = self.getTestingInitialIndexes(sequence_length)
+            testing_ic_indexes, num_test_ICS = self.getTestingInitialIndexes(sequence_length)
+            self.num_test_ICS_for_training = num_test_ICS
             dt = data["dt"]
             data_mle = data["mle"]
             del data
-        targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
+        targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
             rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom = \
-                self.predictIndexes(train_input_sequence, testing_ic_indexes, data_mle, dt, "TRAIN")
+                self.predictIndexes(train_input_sequence, num_test_ICS, testing_ic_indexes, data_mle, dt, "TRAIN")
         
         for var_name in getNamesInterestingVars():
             exec("self.{:s}_TRAIN = {:s}".format(var_name, var_name))
@@ -243,14 +260,20 @@ class ESN(object):
         with open(self.test_data_path, "rb") as file:
             data = pickle.load(file)
             test_input_sequence = data["test_input_sequence"][:, :self.input_dim]
+            if self.step_size > 1:
+                # If step size is greater than 1, we need to downsample the input sequence
+                test_input_sequence = test_input_sequence[::self.step_size, :]
+                if self.display_output == True: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
             sequence_length = np.shape(test_input_sequence)[0]
-            testing_ic_indexes = self.getTestingInitialIndexes(sequence_length)
+            testing_ic_indexes, num_test_ICS = self.getTestingInitialIndexes(sequence_length)
+            # print("Number of testing ICs: {:}".format(num_test_ICS))
+            self.num_test_ICS = num_test_ICS
             dt = data["dt"]
             data_mle = data["mle"]
             del data
-        targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
+        targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
             rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom = \
-                self.predictIndexes(test_input_sequence, testing_ic_indexes, data_mle, dt, "TEST")
+                self.predictIndexes(test_input_sequence, num_test_ICS, testing_ic_indexes, data_mle, dt, "TEST")
         
         for var_name in getNamesInterestingVars():
             exec("self.{:s}_TEST = {:s}".format(var_name, var_name))
@@ -264,11 +287,12 @@ class ESN(object):
         testing_ic_indexes = np.arange(min_idx, max_idx, step = self.iterative_prediction_length)
         np.random.shuffle(testing_ic_indexes)
         if len(testing_ic_indexes) < self.num_test_ICS:
-            self.num_test_ICS = len(testing_ic_indexes)
-        return testing_ic_indexes
+            num_test_ICS = len(testing_ic_indexes)
+        else:
+            num_test_ICS = self.num_test_ICS
+        return testing_ic_indexes, num_test_ICS
 
-    def predictIndexes(self, input_sequence, ic_indexes, data_mle, dt, set_name):
-        num_test_ICS = self.num_test_ICS
+    def predictIndexes(self, input_sequence, num_test_ICS, ic_indexes, data_mle, dt, set_name):
         input_sequence = self.scaler.scaleData(input_sequence, reuse=1)     # reuse the statistcs of the traning sequence 
         predictions_all = []
         targets_all = []
@@ -278,7 +302,6 @@ class ESN(object):
         rmnse_all = []
         num_accurate_pred_05_all = []
         num_accurate_pred_1_all = []
-        hidden_state_all = []
         d_geom_all = []
 
         for ic_num in range(num_test_ICS):
@@ -287,22 +310,25 @@ class ESN(object):
                 
             ic_idx = ic_indexes[ic_num]
             input_sequence_ic = input_sequence[ic_idx-self.dynamics_length:ic_idx+self.iterative_prediction_length]
-
+            
             # Transform input sequence to pytorch tensor with shape [sequence_length, batch_size=1, dimension] and forward the network
             input_sequence_ic = torch.from_numpy(input_sequence_ic)
             if self.gpu:
                 # SENDING THE TENSORS TO CUDA
                 input_sequence_ic = self.sendDataToCUDA(input_sequence_ic)
 
-            prediction, target, prediction_augment, target_augment, hidden_state, d_geom = self.model.predictSequence(input_sequence_ic, self.dynamics_length, self.iterative_prediction_length)
+            prediction, target, prediction_augment, target_augment, d_geom = self.model.predictSequence(input_sequence_ic, self.dynamics_length, self.iterative_prediction_length)
             if self.gpu:
-                prediction= prediction.cpu().detach().numpy()
-                target = target.cpu().detach().numpy()
-                prediction_augment = prediction_augment.cpu().detach().numpy()
-                target_augment = target_augment.cpu().detach().numpy()
-                hidden_state = hidden_state.cpu().detach().numpy()
-                d_geom = d_geom.cpu().detach().numpy()
-
+                prediction= prediction.cpu().detach()
+                target = target.cpu().detach()
+                prediction_augment = prediction_augment.cpu().detach()
+                target_augment = target_augment.cpu().detach()
+                d_geom = d_geom.cpu().detach()
+            prediction= prediction.numpy()
+            target = target.numpy()
+            prediction_augment = prediction_augment.numpy()
+            target_augment = target_augment.numpy()
+            d_geom = d_geom.numpy()
 
             if self.display_output == True: print("SEQUENCE PREDICTED...\n")
             prediction = self.scaler.descaleData(prediction)
@@ -318,7 +344,6 @@ class ESN(object):
             predictions_augment_all.append(prediction_augment)
             num_accurate_pred_05_all.append(num_accurate_pred_05)
             num_accurate_pred_1_all.append(num_accurate_pred_1)
-            hidden_state_all.append(hidden_state)
             d_geom_all.append(d_geom)
 
         targets_all = np.array(targets_all)
@@ -329,7 +354,6 @@ class ESN(object):
         predictions_augment_all = np.array(predictions_augment_all)
         num_accurate_pred_05_all = np.array(num_accurate_pred_05_all)
         num_accurate_pred_1_all = np.array(num_accurate_pred_1_all)
-        hidden_state_all = np.array(hidden_state_all)
         d_geom_all = np.array(d_geom_all)
         # print(d_geom_all)
 
@@ -357,24 +381,24 @@ class ESN(object):
         # os.makedirs(self.saving_path + self.results_dir + self.model_name, exist_ok=True)
         # np.savetxt(data_path, predictions_all[0],fmt="%.6f", delimiter=",")
 
-        return targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom
+        return targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom
 
 
     def plotTestResult(self):
         os.makedirs(self.saving_path + self.fig_dir + self.model_name, exist_ok=True)
         # plot the test result on train and test data set
-        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.hidden_state_all_TRAIN, self.dynamics_length, self.scaler.data_std, "TRAIN")
-        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.hidden_state_all_TEST, self.dynamics_length, self.scaler.data_std, "TEST")
-        plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
+        # plotFirstThreePredictions(self, self.num_test_ICS_for_training, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.dynamics_length, self.scaler.data_std, "TRAIN")
+        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.dynamics_length, self.scaler.data_std, "TEST")
+        # plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
         plotSpectrum(self, self.sp_true_TEST, self.sp_pred_TEST, self.freq_true_TEST, self.freq_pred_TEST, "TEST")
 
     def plotSavedResult(self):
         os.makedirs(self.saving_path + self.fig_dir + self.model_name, exist_ok=True)
         # plot the test result on train and test data set
         self.loadResult()
-        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.hidden_state_all_TRAIN, self.dynamics_length, self.scaler.data_std, "TRAIN")
-        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.hidden_state_all_TEST, self.dynamics_length, self.scaler.data_std, "TEST")
-        plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
+        # plotFirstThreePredictions(self, self.num_test_ICS_for_training, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.dynamics_length, self.scaler.data_std, "TRAIN")
+        plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.dynamics_length, self.scaler.data_std, "TEST")
+        # plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
         plotSpectrum(self, self.sp_true_TEST, self.sp_pred_TEST, self.freq_true_TEST, self.freq_pred_TEST, "TEST")
 
     def saveResults(self):
@@ -386,11 +410,13 @@ class ESN(object):
             
         data = {}
         data["model_name"] = self.model_name
+        ## used for plotting saved results
         data["num_test_ICS"] = self.num_test_ICS
-        data["scaler"] = self.scaler    ## used for plotting saved results
+        data["num_test_ICS_for_training"] = self.num_test_ICS_for_training
+        data["scaler"] = self.scaler    
         for var_name in getNamesInterestingVars():
             exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-            exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
+            # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
         data_path = self.saving_path + self.results_dir + self.model_name + "/evaluation_results.pickle"
         with open(data_path, "wb") as file:
             # Pickle the "data" dictionary using the highest protocol available.
@@ -398,7 +424,7 @@ class ESN(object):
 
         for var_name in getSequencesInterestingVars():
             exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-            exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
+            # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
         data_path = self.saving_path + self.results_dir + self.model_name + "/results.pickle"
         with open(data_path, "wb") as file:
             # Pickle the "data" dictionary using the highest protocol available.
@@ -413,12 +439,14 @@ class ESN(object):
             data = pickle.load(file)
             # load result on train/test data
             for var_name in getNamesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
             for var_name in getSequencesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
             self.scaler = data["scaler"]    ## used for plotting saved results
+            self.num_test_ICS =  data["num_test_ICS"] 
+            self.num_test_ICS_for_training = data["num_test_ICS_for_training"] 
             del data
         return data
     
@@ -433,8 +461,8 @@ class ESN(object):
         data["model_name"] = self.model_name
         data["num_test_ICS"] = self.num_test_ICS
         for var_name in getNamesInterestingVars():
+            # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
             exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-            exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
         data_path = self.saving_path + self.results_dir + self.model_name + "/evaluation_results.pickle"
         with open(data_path, "wb") as file:
             # Pickle the "data" dictionary using the highest protocol available.
@@ -449,7 +477,7 @@ class ESN(object):
             data = pickle.load(file)
             # load result on train/test data
             for var_name in getNamesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
         return data
 

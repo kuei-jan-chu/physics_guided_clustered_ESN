@@ -58,42 +58,23 @@ def plotTrainingLosses(model, loss_train, loss_val, min_val_error,additional_str
         print("## Empty losses. Not printing... ##")
 
 
-
-def plotLatentDynamics(model, set_name, latent_states, ic_idx):
-    # print(np.shape(latent_states))
-    if np.shape(latent_states)[1] >= 2:
-        fig, ax = plt.subplots()
-        plt.title("Latent dynamics in {:}".format(set_name))
-        X = latent_states[:, 0]
-        Y = latent_states[:, 1]
-        # epsilon = 1e-7
-        # for i in range(len(X)-1):
-        #     if np.abs(X[i+1]-X[i]) > epsilon and np.abs(Y[i+1]-Y[i]) > epsilon:
-        #         # plt.arrow(X[i], Y[i], X[i+1]-X[i], Y[i+1]-Y[i], color='red', head_width=.05, shape='full', lw=0, length_includes_head=True, zorder=2, linestyle='')
-        #         plt.arrow(X[i], Y[i], X[i+1]-X[i], Y[i+1]-Y[i], color='blue', head_width=.05, shape='full', length_includes_head=True, zorder=2)
-        plt.tight_layout()
-        plt.plot(X, Y, 'b', linewidth = 1, label='prediction', zorder=1)
-        plt.legend(loc="lower right")
-        plt.legend(fontsize=14)
-        plt.xlabel('dim 1')
-        plt.ylabel('dim 2')
-        plt.autoscale(enable=True, axis='both')
-        fig_path = model.saving_path + model.fig_dir + model.model_name + "/lattent_dynamics_{:}_{:}.pdf".format(set_name, ic_idx)
-        plt.savefig(fig_path, dpi=300)
-        plt.close()
-    else:
-        fig, ax = plt.subplots()
-        plt.tight_layout()
-        plt.legend(fontsize=14)
-        plt.legend(loc="lower right")
-        plt.title("Latent dynamics in {:}".format(set_name))
-        plt.plot(latent_states[:-1, 0], latent_states[1:, 0], 'b', linewidth = 2.0, label='prediction')
-        fig_path = model.saving_path + model.fig_dir + model.model_name + "/lattent_dynamics_{:}_{:}.pdf".format(set_name, ic_idx)
-        plt.savefig(fig_path, dpi=300)
-        plt.close()
-
 def plotAttractor(model, set_name, targets, predictions, ic_idx):
     # print(np.shape(latent_states))
+    if predictions.shape[1] >= 3:
+        # === 3D attractor ===
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot(predictions[:, 0], predictions[:, 1], predictions[:, 2], 'b', linewidth=1, label='prediction')
+        ax.plot(targets[:, 0], targets[:, 1], targets[:, 2], 'r', linewidth=1, label='target')
+        ax.set_title("Attractor reconstruction by " + labelNameForModels(model.class_name))
+        ax.set_xlabel('dim 1')
+        ax.set_ylabel('dim 2')
+        ax.set_zlabel('dim 3')
+        ax.legend(loc="upper right", fontsize=10)
+        plt.tight_layout()
+        fig_path = model.saving_path + model.fig_dir + model.model_name + "/3_d_attractor_{:}_{:}.pdf".format(set_name, ic_idx)
+        plt.savefig(fig_path, dpi=300)
+        plt.close()
     if np.shape(predictions)[1] >= 2:
         fig, ax = plt.subplots()
         plt.title("Attractor reconstruction by " + labelNameForModels(model.class_name))
@@ -134,9 +115,7 @@ def plotAttractor(model, set_name, targets, predictions, ic_idx):
 
 
 
-def plotIterativePrediction(model, set_name, target, prediction, error, nerror, ic_idx, dt, data_mle, data_std, truth_augment=None, prediction_augment=None, warm_up=None, latent_states=None):
-    if latent_states is not None:
-        plotLatentDynamics(model, set_name, latent_states, ic_idx)
+def plotIterativePrediction(model, set_name, target, prediction, error, nerror, ic_idx, dt, data_mle, data_std, truth_augment=None, prediction_augment=None, warm_up=None):
     
     plotAttractor(model, set_name, target, prediction, ic_idx)
     
@@ -203,11 +182,11 @@ def plotIterativePrediction(model, set_name, target, prediction, error, nerror, 
 
     if model.input_dim >=3: createTestingContours(model, target, prediction, dt, data_mle, ic_idx, data_std, set_name)
 
-def plotFirstThreePredictions(model, num_test_ICS, targets_all, prediction_all, rmse_all, rmnse_all, test_ic_indexes, dt, data_mle, target_augment_all, prediction_augment_all, hidden_state_all, dynamics_length, data_std, set_name):
+def plotFirstThreePredictions(model, num_test_ICS, targets_all, prediction_all, rmse_all, rmnse_all, test_ic_indexes, dt, data_mle, target_augment_all, prediction_augment_all, dynamics_length, data_std, set_name):
         if data_mle < 0:
             data_mle = 1
         for ic_num in range(num_test_ICS):  
-            if ic_num < 3: plotIterativePrediction(model, set_name, targets_all[ic_num], prediction_all[ic_num], rmse_all[ic_num], rmnse_all[ic_num], test_ic_indexes[ic_num], dt, data_mle, data_std, target_augment_all[ic_num], prediction_augment_all[ic_num], dynamics_length, hidden_state_all[ic_num])
+            if ic_num < 3: plotIterativePrediction(model, set_name, targets_all[ic_num], prediction_all[ic_num], rmse_all[ic_num], rmnse_all[ic_num], test_ic_indexes[ic_num], dt, data_mle, data_std, target_augment_all[ic_num], prediction_augment_all[ic_num], dynamics_length)
                
 def labelNameForModels(model):
     if model == "standard_esn":
@@ -216,6 +195,10 @@ def labelNameForModels(model):
           return "PGC-ESN"
     elif model == "asym_pgclustered_esn":
           return "PGC-ESN"
+    elif model == "wpgclustered_esn":
+         return "WPGC-ESN"
+    elif model == "clustered_esn":
+         return "C-ESN"
     elif model == "randomly_clustered_esn":
          return "RandC-ESN"
     elif model == "paralleled_esn":
@@ -224,6 +207,8 @@ def labelNameForModels(model):
         return "PartPGC-ESN"
     elif model == "moved_pgclustered_esn":
         return "MovedPGC-ESN"
+    elif model == "auto_pgclustered_esn":
+         return "AutoPGC-ESN"
     else: 
         return model
 
@@ -239,7 +224,7 @@ def createTestingContours(model, target, output, dt, data_mle, ic_idx, data_std,
     vmax = int(target.max())
     vmin_error = 0.0
     # vmax_error = error.max()
-    vmax_error = 5
+    vmax_error = 12
 
     print("IC_IDX: {:}, \nVMIN: {:} \nVMAX: {:} \n".format(ic_idx, vmin, vmax))
 
@@ -301,7 +286,7 @@ def labelNameForMetrics(metric):
     elif metric == "num_accurate_pred_05":
           return "VPT(0.5)"
     elif metric == "num_accurate_pred_1":
-          return "VPT(1)"
+          return "VPT-1"
     elif metric == "error_freq":
          return "PSE"
     elif metric == "d_temp":
@@ -314,7 +299,7 @@ def plotEvaluationResultOverAllXValues(all_models_results, params_dict, fig_dir_
     # Calculate the global min and max for y-axis
     y_min, y_max = float('inf'), float('-inf')
     # Create separate figures for TRAIN and TEST
-    fig_train, ax_train = plt.subplots()
+    # fig_train, ax_train = plt.subplots()
     fig_test, ax_test = plt.subplots()
 
     # Loop through all models' results
@@ -327,16 +312,16 @@ def plotEvaluationResultOverAllXValues(all_models_results, params_dict, fig_dir_
         # train_metrics = [res[1] for res in model_results]
         # test_metrics = [res[2] for res in model_results]
         reservoir_sizes = [res[params_dict["x_value"]] for res in model_results]  
-        metric_results_avg_train = [res["metric_result_avg_train"] for res in model_results]      
+        # metric_results_avg_train = [res["metric_result_avg_train"] for res in model_results]      
         metric_results_avg_test = [res["metric_result_avg_test"] for res in model_results]
-        metric_results_std_train = [res["metric_result_std_train"] for res in model_results]      
+        # metric_results_std_train = [res["metric_result_std_train"] for res in model_results]      
         metric_results_std_test = [res["metric_result_std_test"] for res in model_results]
 
         # Update global min and max
         # Calculate min and max considering avg ± std
-        y_min = min(y_min, *(avg - std for avg, std in zip(metric_results_avg_train, metric_results_std_train)))
+        # y_min = min(y_min, *(avg - std for avg, std in zip(metric_results_avg_train, metric_results_std_train)))
         y_min = min(y_min, *(avg - std for avg, std in zip(metric_results_avg_test, metric_results_std_test)))
-        y_max = max(y_max, *(avg + std for avg, std in zip(metric_results_avg_train, metric_results_std_train)))
+        # y_max = max(y_max, *(avg + std for avg, std in zip(metric_results_avg_train, metric_results_std_train)))
         y_max = max(y_max, *(avg + std for avg, std in zip(metric_results_avg_test, metric_results_std_test)))
 
         # # Plot TRAIN metrics
@@ -344,14 +329,14 @@ def plotEvaluationResultOverAllXValues(all_models_results, params_dict, fig_dir_
         # # Plot TEST metrics
         # ax_test.plot(reservoir_sizes, metric_results_avg_test, label=model_name, marker='o')
         # Plot TRAIN metrics with error bars
-        ax_train.errorbar(
-            reservoir_sizes, 
-            metric_results_avg_train, 
-            yerr=metric_results_std_train, 
-            label=labelNameForModels(model_name), 
-            fmt='-o', 
-            capsize=5
-        )
+        # ax_train.errorbar(
+        #     reservoir_sizes, 
+        #     metric_results_avg_train, 
+        #     yerr=metric_results_std_train, 
+        #     label=labelNameForModels(model_name), 
+        #     fmt='-o', 
+        #     capsize=5
+        # )
         
         # Plot TEST metrics with error bars
         ax_test.errorbar(
@@ -376,34 +361,33 @@ def plotEvaluationResultOverAllXValues(all_models_results, params_dict, fig_dir_
     metric_label = labelNameForMetrics(evaluation_metric)
     # Customize TRAIN plot
     # ax_train.set_title("Training Metrics")
-    ax_train.set_title(metric_label + " over " + params_dict["x_value"])
-    ax_train.set_xlabel(params_dict["x_value"])
-    ax_train.set_ylabel(f"{metric_label}")
-    ax_train.legend()
-    # ax_train.grid(True)
-    ax_train.set_ylim(y_min, y_max)
-    # ax_train.set_yscale('log')
-    ax_train.legend(fontsize=14)
+    # ax_train.set_title(metric_label + " over " + params_dict["x_value"])
+    # ax_train.set_xlabel(params_dict["x_value"])
+    # ax_train.set_ylabel(f"{metric_label}")
+    # ax_train.legend()
+    # # ax_train.grid(True)
+    # ax_train.set_ylim(y_min, y_max)
+    # # ax_train.set_yscale('log')
+    # ax_train.legend(fontsize=14)
 
     # Customize TEST plot
     ax_test.set_title(metric_label + " over " + params_dict["x_value"])
     ax_test.set_xlabel(params_dict["x_value"])
     ax_test.set_ylabel(f"{metric_label}")
-    ax_test.legend()
     # ax_test.grid(True)
     ax_test.set_ylim(y_min, y_max)
     # ax_test.set_yscale('log')
-    ax_test.legend(fontsize=14)
+    ax_test.legend(fontsize=10)
 
 
     # save the plots
     train_fig_file = fig_dir_path + "training_{:}_plot.pdf".format(evaluation_metric)
     test_fig_file = fig_dir_path + "testing_{:}_plot.pdf".format(evaluation_metric)
-    fig_train.savefig(train_fig_file, dpi=300, bbox_inches='tight')  # Save TRAIN plot
+    # fig_train.savefig(train_fig_file, dpi=300, bbox_inches='tight')  # Save TRAIN plot
     fig_test.savefig(test_fig_file, dpi=300, bbox_inches='tight')  # Save TEST plot
 
     # Close the figures to free memory
-    plt.close(fig_train)
+    # plt.close(fig_train)
     plt.close(fig_test)
 
 
@@ -423,22 +407,32 @@ def plotNRMSEForAllModels(models, nrmse_for_all_models, ic_idx, dt, data_mle, fi
     nrmse_for_all_models = nrmse_for_all_models[:, :700]
     time = np.arange(len(nrmse_for_all_models[0])) * dt * data_mle
     # time = np.arange(len(nrmse_for_all_models[0])) * dt / data_mle
-    vmin, vmax = 0, max([max(nrmse_sequence) for nrmse_sequence in nrmse_for_all_models])
+    # vmin, vmax = 0, max([max(nrmse_sequence) for nrmse_sequence in nrmse_for_all_models])
+    vmin, vmax = min([min(nrmse_sequence) for nrmse_sequence in nrmse_for_all_models]), max([max(nrmse_sequence) for nrmse_sequence in nrmse_for_all_models])
     # print(vmax)
     ymin, ymax = 0, time[-1]
 
     for model_name, nrmse_sequence in zip(models, nrmse_for_all_models):
-        nrmse_sequence = nrmse_sequence[:1000]
+        # nrmse_sequence = nrmse_sequence[:1000]
         plt.plot(np.transpose(nrmse_sequence), time, label=labelNameForModels(model_name), linewidth=1.5)
     
+    plt.axvline(x=1, color="gray", linestyle="--", linewidth=1)
+    
     ax = plt.gca()  # Get the current axis object
-    ax.set_xlabel(r"NRMSE")
+    # ax.set_xlabel(r"NRMSE")
+    ax.set_xlabel(r"Error")
     ax.set_ylabel(r"$t/T^{\lambda}$")
+    # ax.set_xlim(vmin if vmin > 0 else 1e-3, np.ceil(vmax))  # avoid log(0)
     ax.set_xlim(vmin, np.ceil(vmax))  # Set x-axis limits
+    ax.set_xscale("log")
     ax.set_ylim(ymin, ymax)  # Set y-axis limits
-    ax.set_xticks(np.arange(vmin, np.ceil(vmax)+1, np.ceil(vmax/2)))  # Adjust x-axis ticks
+    # ax.set_xticks(np.arange(vmin, np.ceil(vmax)+1, np.ceil(vmax/2)))  # Adjust x-axis ticks
     ax.set_yticks(np.arange(0, int(ymax) + 1, np.ceil(ymax/6)))  # Adjust y-axis ticks
-    # ax.tick_params(axis="both", which="major", labelsize=14)
+    xticks = [1, np.ceil(vmax)]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([f"{xticks[0]:.0f}", f"{xticks[1]:.0f}"])
+    # hide the minor ticks for log scale on the x-axis
+    ax.tick_params(axis='x', which='minor', bottom=False)
 
     plt.title("NRMSE")
     plt.legend(fontsize=14)

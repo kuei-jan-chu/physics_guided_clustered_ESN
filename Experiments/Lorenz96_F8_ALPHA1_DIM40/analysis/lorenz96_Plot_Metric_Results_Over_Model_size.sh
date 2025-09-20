@@ -12,6 +12,6 @@ python3 ANALYSE.py plot_all_evaluation_results \
 --mode plot_all_evaluation_results \
 --model_types $MODEL_TYPES \
 --experiment_name Lorenz96_F8_ALPHA1_DIM40 \
---parse_string "round_(\d+)_grid-search-(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)" \
---x_value "Reservoir Size" \
+--parse_string "round_(\d+)_grid-search-(.+?)_reservoir_size_(\d+)_NTrain_100000_Noise_5_Regularization_(\d+\.\d+)_step_size_1" \
+--x_value "Reservoir size" \
 --x_value_group_num 3 \

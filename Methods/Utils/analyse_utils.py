@@ -24,8 +24,8 @@ def _plotModelsMetricResults(params_dict, evaluation_metric):
                     data = pickle.load(file)
                     result = {
                         params_dict["x_value"]: x_value,
-                        "metric_result_avg_train": data[evaluation_metric + "_avg_TRAIN"],
-                        "metric_result_std_train": data[evaluation_metric + "_std_TRAIN"],
+                        # "metric_result_avg_train": data[evaluation_metric + "_avg_TRAIN"],
+                        # "metric_result_std_train": data[evaluation_metric + "_std_TRAIN"],
                         "metric_result_avg_test": data[evaluation_metric + "_avg_TEST"],
                         "metric_result_std_test": data[evaluation_metric + "_std_TEST"],
                     }
@@ -82,8 +82,8 @@ def _plotModelsMetricResultsWithOneModelHaveMultipleSettings(params_dict, evalua
                     data = pickle.load(file)
                     result = {
                         params_dict["x_value"]: x_value,
-                        "metric_result_avg_train": data[evaluation_metric + "_avg_TRAIN"],
-                        "metric_result_std_train": data[evaluation_metric + "_std_TRAIN"],
+                        # "metric_result_avg_train": data[evaluation_metric + "_avg_TRAIN"],
+                        # "metric_result_std_train": data[evaluation_metric + "_std_TRAIN"],
                         "metric_result_avg_test": data[evaluation_metric + "_avg_TEST"],
                         "metric_result_std_test": data[evaluation_metric + "_std_TEST"],
                     }
@@ -134,9 +134,32 @@ def plotNRMSE(params_dict):
             .format(params_dict["experiment_name"], model_type, params_dict["hyper_tuning_config_name"])
         model_path = global_params.saving_path.format(params_dict["experiment_name"]) + "/{:}".format(model_type)
         report_path = model_path + "/Tuning/round{:}".format(params_dict["hyper_tuning_round_num"]) 
-        best_hyperparams, exp_name = readBestHypAfterTuning(hype_tuning_config_path, report_path)
+
+        # best_hyperparams, exp_name = readBestHypAfterTuning(hype_tuning_config_path, report_path)
+        
+        if model_type == "pgclustered_esn":
+            best_hyperparams = {
+                "radius":0.4,
+                "sigma_input":0.1,
+            }
+        elif model_type == "randomly_clustered_esn":
+            best_hyperparams = {
+                "radius":0.1,
+                "sigma_input":0.1,
+            }
+        elif model_type == "standard_esn":
+            best_hyperparams = {
+                "radius":0.1,
+                "sigma_input":0.1,
+            }
+        elif model_type == "paralleled_esn":
+            best_hyperparams = {
+                "radius":0.1,
+                "sigma_input":0.1,
+            }  
+
         params_dict_for_model = params_dict.copy()
-        params_dict_for_model.update(best_hyperparams)
+        params_dict_for_model.update(best_hyperparams)       
         params_dict_for_model["sparsity"] = params_dict["sparsity_list"][i]
         params_dict_for_model["p_in"] = params_dict["p_in_list"][i]
         params_dict_for_model["model_name"] = model_type
@@ -158,12 +181,12 @@ def plotNRMSE(params_dict):
             data_mle = model.data_mle_TEST
         models.append(model_type)
         nrmses_test_for_all_models.append(model.rmnse_all_TEST)
-        nrmses_train_for_all_models.append(model.rmnse_all_TRAIN)
+        # nrmses_train_for_all_models.append(model.rmnse_all_TRAIN)
     # fig_dir_path = params_dict["saving_path"] + params_dict["fig_dir"] + str(params_dict["approx_reservoir_size"]) + '/'+ params_dict["hyper_tuning_config_name"] + '/' + str(params_dict["hyper_tuning_round_num"])
     fig_dir_path = params_dict["saving_path"] + params_dict["fig_dir"] + str(params_dict["approx_reservoir_size"])
     os.makedirs(fig_dir_path, exist_ok=True)
     plotFirstThreeNRMSEForAllModels(models, nrmses_test_for_all_models, num_test_ICS, testing_ic_indexes, dt, data_mle, fig_dir_path, "TEST")
-    plotFirstThreeNRMSEForAllModels(models, nrmses_train_for_all_models, num_test_ICS, testing_ic_indexes, dt, data_mle, fig_dir_path, "TRAIN")
+    # plotFirstThreeNRMSEForAllModels(models, nrmses_train_for_all_models, num_test_ICS, testing_ic_indexes, dt, data_mle, fig_dir_path, "TRAIN")
     return 0
 
 def plotModelsResult(params_dict):
@@ -243,6 +266,7 @@ def getEvaluationResultsParser(parser):
     parser.add_argument("--parse_string", help="the parse string of the result file", type=str, required=True)
     parser.add_argument("--x_value", help="the value changed on the x axis", type=str, required=True)
     parser.add_argument("--x_value_group_num", help="the group num for the value changed on the x axis", type=int, required=True)
+    parser.add_argument("--step_size", help="step size of the input and target sequences", type=int, default=1, required=False)
     return parser
 
 def getEvaluationResultsWithOneModelHaveMultipleSettingsParser(parser):
@@ -258,6 +282,7 @@ def getEvaluationResultsWithOneModelHaveMultipleSettingsParser(parser):
     parser.add_argument("--parse_string_for_specific_model", help="the parse string of the result file for the specific model", type=str, required=True)
     parser.add_argument("--setting_value_group_num_for_specific_model", help="the group num for the specific value of the specific model", type=int, required=True)
     parser.add_argument("--x_value_group_num_for_specific_model", help="the group num for the value changed on the x axis for the specific model", type=int, required=True)
+    parser.add_argument("--step_size", help="step size of the input and target sequences", type=int, default=1, required=False)
 
 def getNRMSEofAllModelsWithSizeFixedParser(parser):
     parser.add_argument("--mode", help="plot_nrmse_over_all_model_with_size_fixed", type=str, required=True)
@@ -291,6 +316,7 @@ def getNRMSEofAllModelsWithSizeFixedParser(parser):
                     )
     parser.add_argument("--parallel_group_size", help="the size of dimensions of input for each reservoir. must be divisor of the input dimension", type=int, required=True)
     parser.add_argument("--parallel_group_interaction_length", help="The interaction length of each group. 0-rdim/2", type=int, required=True)
+    parser.add_argument("--step_size", help="step size of the input and target sequences", type=int, default=1, required=False)
     return parser
 
 
@@ -300,6 +326,7 @@ def getMLEAnalysisParser(parser):
     parser.add_argument("--system_list", help="the list of system for plotting the mle", type=str, nargs='+', required=True)
     parser.add_argument("--x_value", help="the value changed on the x axis", type=str, required=False)
     parser.add_argument("--x_value_list", help="the values on the x axis", type=int, nargs='+', required=True)
+    parser.add_argument("--step_size", help="step size of the input and target sequences", type=int, default=1, required=False)
     return parser
 
 
@@ -313,4 +340,5 @@ def getNonlinearityAndIcwAnalysisParser(parser):
     parser.add_argument("--x_value_group_num", help="the group num for the value changed on the x axis", type=int, required=False)
     parser.add_argument("--icw_value_group_num", help="the group num for the icw value ", type=int, required=False)
     parser.add_argument("--approx_reservoir_size", help="approx_reservoir_size", type=int, required=True)
+    parser.add_argument("--step_size", help="step size of the input and target sequences", type=int, default=1, required=False)
     return parser

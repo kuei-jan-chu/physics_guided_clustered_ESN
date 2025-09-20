@@ -90,8 +90,11 @@ class ParalleledESN(object):
         self.radius = params["radius"]
         self.p_in = params["p_in"]
         self.sigma_input = params["sigma_input"]
-        self.dynamics_length = params["dynamics_length"]
-        self.iterative_prediction_length = params["iterative_prediction_length"]
+
+        self.step_size = params["step_size"]
+        self.dynamics_length = int(params["dynamics_length"]/self.step_size)
+        self.iterative_prediction_length = int(params["iterative_prediction_length"]/self.step_size)
+
         self.num_test_ICS = params["num_test_ICS"]
         self.nodes_per_input = int(np.ceil(self.approx_reservoir_size/self.RDIM))
         self.total_reservoir_size = self.nodes_per_input * self.RDIM
@@ -153,6 +156,8 @@ class ParalleledESN(object):
     def createModelName(self, params):
         keys = self.getKeysInModelName()
         str_ = "RNN-" + self.class_name + "-" + self.system_name 
+        if self.step_size > 1:
+            str_ += "-SS_{:}".format(self.step_size)
         for key in keys:
             str_ += "-" + keys[key] + "_{:}".format(params[key])
         return str_
@@ -178,25 +183,32 @@ class ParalleledESN(object):
         # print(W_in)
         return W_in	
     
+
     def getTestingInitialIndexes(self, sequence_length):
         testing_ic_indexes = None  # Initialize to None
+        num_test_ICS = None  # Initialize to None
         if self.parallel_group_num == 0:
             max_idx = sequence_length - self.iterative_prediction_length
             min_idx = self.dynamics_length
             testing_ic_indexes = np.arange(min_idx, max_idx, step = self.iterative_prediction_length)
             np.random.shuffle(testing_ic_indexes)
             if len(testing_ic_indexes) < self.num_test_ICS:
-                self.num_test_ICS = len(testing_ic_indexes)
+                num_test_ICS = len(testing_ic_indexes)
+            else:
+                num_test_ICS = self.num_test_ICS
             # Broadcast to all processes
         
         testing_ic_indexes = comm.bcast(testing_ic_indexes, root=0)
+        num_test_ICS = comm.bcast(num_test_ICS, root=0)
 
-        return testing_ic_indexes
+        return testing_ic_indexes, num_test_ICS
+
 
     def augmentHidden(self, h):
         h_aug = h.copy()
         h_aug[::2] = h_aug[::2] ** 2.0 
         return h_aug    
+
 
     def train(self):
         self.esn_mode = "train"
@@ -204,11 +216,17 @@ class ParalleledESN(object):
         self.worker_train_data_path, self.worker_test_data_path = createParallelTrainingData(self)
         dynamics_length = self.dynamics_length
         input_dim = self.input_dim
-        N_used = self.N_train
+        N_used = int(self.N_train/ self.step_size)  # Adjust N_used based on step size
+
         with open(self.worker_train_data_path, "rb") as file:
             # Pickle the "data" dictionary using the highest protocol available.
             data = pickle.load(file)
             train_input_sequence = data["train_input_sequence"]
+            if self.step_size > 1:  
+                # If step size is greater than 1, we need to downsample the input sequence
+                train_input_sequence = train_input_sequence[::self.step_size, :]
+                if self.display_output == True and self.parallel_group_num==0: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
+
             if self.display_output == True and self.parallel_group_num==0: print("Adding noise to the training data. {:} per mille ".format(self.noise_level))
             train_input_sequence = addNoise(train_input_sequence, self.noise_level)            
             N_all, dim = np.shape(train_input_sequence)
@@ -327,7 +345,6 @@ class ParalleledESN(object):
         target = input_sequence[dynamics_length:, getFirstActiveIndex(self.parallel_group_interaction_length):getLastActiveIndex(self.parallel_group_interaction_length)]
 
         prediction = []
-        hidden_state_all = []
         if self.display_output == True and self.parallel_group_num == 0:
                 print("\nPREDICTION:")
         for t in range(iterative_prediction_length):
@@ -359,11 +376,9 @@ class ParalleledESN(object):
             i = np.reshape(new_input, (-1,1)).copy()
             h = np.tanh(W_h @ h + W_in @ i)
 
-            hidden_state_all.append(h)
 
         prediction = np.array(prediction)[:,:,0]
         prediction_warm_up = np.array(prediction_warm_up)[:,:,0]
-        hidden_state_all = np.array(hidden_state_all)[:,:,0]
 
         target_augment = input_sequence[:, getFirstActiveIndex(self.parallel_group_interaction_length):getLastActiveIndex(self.parallel_group_interaction_length)]
         prediction_augment = np.concatenate((prediction_warm_up, prediction), axis=0)
@@ -371,7 +386,7 @@ class ParalleledESN(object):
         if self.display_output == True and self.parallel_group_num == 0: print("\nSEQUENCE PREDICTED...")
         # if self.parallel_group_num == 0: print("target sequence", target)
 
-        return prediction, target, prediction_augment, target_augment, hidden_state_all
+        return prediction, target, prediction_augment, target_augment
     
     def getDataPathForTuning(self):
         train_data_path = global_params.project_path + f"/Data/{self.system_name}/Data/hypTuning/training_data_N{self.N_train}.pickle"
@@ -393,7 +408,7 @@ class ParalleledESN(object):
         self.esn_mode = "test"
         if self.loadModel()==0:
             self.worker_train_data_path, self.worker_test_data_path = createParallelTrainingData(self)
-            self.testOnTrainingSet()
+            # self.testOnTrainingSet()
             self.testOnTestingSet()
             torch.cuda.empty_cache()
 
@@ -402,16 +417,21 @@ class ParalleledESN(object):
         with open(self.worker_train_data_path, "rb") as file:
             data = pickle.load(file)
             train_input_sequence = data["train_input_sequence"][:,:self.input_dim]
+            if self.step_size > 1:
+                # If step size is greater than 1, we need to downsample the input sequence
+                train_input_sequence = train_input_sequence[::self.step_size, :]
+                if self.display_output == True and self.parallel_group_num==0: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
             sequence_length = np.shape(train_input_sequence)[0]
-            testing_ic_indexes = self.getTestingInitialIndexes(sequence_length)
+            testing_ic_indexes, num_test_ICS = self.getTestingInitialIndexes(sequence_length)
+            self.num_test_ICS_for_training = num_test_ICS
             # testing_ic_indexes = data["testing_ic_indexes"]
             dt = data["dt"]
             data_mle = data["mle"]
             del data
             
-        targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
+        targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
             rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom = \
-                self.predictIndexes(train_input_sequence, testing_ic_indexes, dt, data_mle, "TRAIN")
+                self.predictIndexes(train_input_sequence, num_test_ICS, testing_ic_indexes, dt, data_mle, "TRAIN")
         
         for var_name in getNamesInterestingVars():
             exec("self.{:s}_TRAIN = {:s}".format(var_name, var_name))
@@ -424,16 +444,21 @@ class ParalleledESN(object):
         with open(self.worker_test_data_path, "rb") as file:
             data = pickle.load(file)
             test_input_sequence = data["test_input_sequence"][:,:self.input_dim]
+            if self.step_size > 1:
+                # If step size is greater than 1, we need to downsample the input sequence
+                test_input_sequence = test_input_sequence[::self.step_size, :]
+                if self.display_output == True and self.parallel_group_num==0: print("Downsampling input sequence by a factor of {:}".format(self.step_size))
             sequence_length = np.shape(test_input_sequence)[0]
-            testing_ic_indexes = self.getTestingInitialIndexes(sequence_length)
+            testing_ic_indexes, num_test_ICS = self.getTestingInitialIndexes(sequence_length)
+            self.num_test_ICS = num_test_ICS
             # testing_ic_indexes = data["testing_ic_indexes"]
             dt = data["dt"]
             data_mle = data["mle"]
             del data
             
-        targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
+        targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, \
             rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom = \
-                self.predictIndexes(test_input_sequence, testing_ic_indexes, dt, data_mle, "TEST")
+                self.predictIndexes(test_input_sequence, num_test_ICS, testing_ic_indexes, dt, data_mle, "TEST")
         
         for var_name in getNamesInterestingVars():
             exec("self.{:s}_TEST = {:s}".format(var_name, var_name))
@@ -441,10 +466,8 @@ class ParalleledESN(object):
             exec("self.{:s}_TEST = {:s}".format(var_name, var_name))
         return 0
 
-    def predictIndexes(self, input_sequence, ic_indexes, dt, data_mle, set_name):
+    def predictIndexes(self, input_sequence, num_test_ICS, ic_indexes, dt, data_mle, set_name):
         if self.display_output == True and self.parallel_group_num==0: print("\nPREDICTION OF INITIAL CONDITIONS")
-
-        num_test_ICS = self.num_test_ICS
         input_sequence = self.scaler.scaleData(input_sequence, reuse=1)
         # if self.parallel_group_num == 0:    
         #     print("train data mean", self.scaler.data_mean)
@@ -455,7 +478,6 @@ class ParalleledESN(object):
         local_targets_non_descaled = []
         local_predictions_augment = []
         local_targets_augment = []
-        local_hidden_state_all = []
 
         for ic_num in range(num_test_ICS):
             if self.display_output == True and self.parallel_group_num == 0:
@@ -463,7 +485,7 @@ class ParalleledESN(object):
             
             ic_idx = ic_indexes[ic_num]
             input_sequence_ic = input_sequence[ic_idx-self.dynamics_length:ic_idx+self.iterative_prediction_length]
-            prediction, target, prediction_augment, target_augment, hidden_states = self.predictSequence(input_sequence_ic)
+            prediction, target, prediction_augment, target_augment = self.predictSequence(input_sequence_ic)
             # if self.parallel_group_num == 1: print("target sequence", self.scaler.descaleData(input_sequence_ic.copy()))
             local_predictions_non_descaled.append(prediction.copy())
             local_targets_non_descaled.append(target.copy())
@@ -476,9 +498,6 @@ class ParalleledESN(object):
             local_targets.append(target)
             local_predictions_augment.append(prediction_augment)
             local_targets_augment.append(target_augment)
-            local_hidden_state_all.append(hidden_states)
-        
-
 
         local_predictions = np.array(local_predictions)
         local_targets = np.array(local_targets)
@@ -486,17 +505,15 @@ class ParalleledESN(object):
         local_targets_non_descaled = np.array(local_targets_non_descaled)
         local_predictions_augment = np.array(local_predictions_augment)
         local_targets_augment = np.array(local_targets_augment)
-        local_hidden_state_all = np.array(local_hidden_state_all)
         comm.Barrier()
 
-        predictions_all_proxy = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM))
-        targets_all_proxy = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM))
-        predictions_non_descaled_all_proxy = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM))
-        targets_non_descaled_all_proxy = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM))
-        predictions_augment_all_proxy = np.zeros((self.num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM))
-        targets_augment_all_proxy = np.zeros((self.num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM))
+        predictions_all_proxy = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM))
+        targets_all_proxy = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM))
+        predictions_non_descaled_all_proxy = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM))
+        targets_non_descaled_all_proxy = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM))
+        predictions_augment_all_proxy = np.zeros((num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM))
+        targets_augment_all_proxy = np.zeros((num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM))
         scaler_std_proxy = np.zeros((self.RDIM))
-        hidden_state_all_proxy = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.reservoir_size * self.num_parallel_groups))
 
         # SETTING THE LOCAL VALUES
         predictions_all_proxy[:,:,self.parallel_group_num*self.parallel_group_size:(self.parallel_group_num+1)*self.parallel_group_size] = local_predictions
@@ -506,17 +523,15 @@ class ParalleledESN(object):
         predictions_augment_all_proxy[:,:,self.parallel_group_num*self.parallel_group_size:(self.parallel_group_num+1)*self.parallel_group_size] = local_predictions_augment
         targets_augment_all_proxy[:,:,self.parallel_group_num*self.parallel_group_size:(self.parallel_group_num+1)*self.parallel_group_size] = local_targets_augment
         scaler_std_proxy[self.parallel_group_num*self.parallel_group_size:(self.parallel_group_num+1)*self.parallel_group_size] = self.scaler.data_std[getFirstActiveIndex(self.parallel_group_interaction_length):getLastActiveIndex(self.parallel_group_interaction_length)]
-        hidden_state_all_proxy[:, :, self.parallel_group_num*self.reservoir_size: (self.parallel_group_num+1)*self.reservoir_size] = local_hidden_state_all
         # if self.parallel_group_num == 0: print(targets_all_proxy)
 
-        predictions_all = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
-        targets_all = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
-        predictions_non_descaled_all = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
-        targets_non_descaled_all = np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
-        predictions_augment_all = np.zeros((self.num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
-        targets_augment_all = np.zeros((self.num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        predictions_all = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        targets_all = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        predictions_non_descaled_all = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        targets_non_descaled_all = np.zeros((num_test_ICS, self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        predictions_augment_all = np.zeros((num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
+        targets_augment_all = np.zeros((num_test_ICS, self.dynamics_length+self.iterative_prediction_length, self.RDIM)) if(self.parallel_group_num == 0) else None
         scaler_std = np.zeros((self.RDIM)) if(self.parallel_group_num == 0) else None
-        hidden_state_all= np.zeros((self.num_test_ICS, self.iterative_prediction_length, self.reservoir_size * self.num_parallel_groups)) if(self.parallel_group_num == 0) else None
 
         comm.Reduce([predictions_all_proxy, MPI.DOUBLE], [predictions_all, MPI.DOUBLE], MPI.SUM, root=0)
         comm.Reduce([targets_all_proxy, MPI.DOUBLE], [targets_all, MPI.DOUBLE], MPI.SUM, root=0)
@@ -525,7 +540,6 @@ class ParalleledESN(object):
         comm.Reduce([predictions_augment_all_proxy, MPI.DOUBLE], [predictions_augment_all, MPI.DOUBLE], MPI.SUM, root=0)
         comm.Reduce([targets_augment_all_proxy, MPI.DOUBLE], [targets_augment_all, MPI.DOUBLE], MPI.SUM, root=0)
         comm.Reduce([scaler_std_proxy, MPI.DOUBLE], [scaler_std, MPI.DOUBLE], MPI.SUM, root=0)
-        comm.Reduce([hidden_state_all_proxy, MPI.DOUBLE], [hidden_state_all, MPI.DOUBLE], MPI.SUM, root=0)
         self.scaler.data_std_for_all_reservoirs = scaler_std if(self.parallel_group_num == 0) else None
         # if self.parallel_group_num == 0: print(targets_all)
 
@@ -575,16 +589,16 @@ class ParalleledESN(object):
         else:
             rmse_all, rmnse_all, rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, predictions_all, targets_all, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom = None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
         if self.display_output == True and self.parallel_group_num==0: print(f"IC INDEXES OF {set_name} PREDICTED...\n\n")
-        return targets_all, predictions_all, hidden_state_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom
+        return targets_all, predictions_all, rmse_all, rmnse_all, targets_augment_all, predictions_augment_all, rmse_avg, rmnse_avg, num_accurate_pred_05_avg, num_accurate_pred_1_avg, error_freq, freq_pred, freq_true, sp_true, sp_pred, d_temp, d_geom
 
 
     def plotTestResult(self):
         if(self.parallel_group_num == 0):
             os.makedirs(self.saving_path + self.fig_dir + self.model_name, exist_ok=True)
             # plot the test result on train and test data set
-            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.hidden_state_all_TRAIN, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TRAIN")
-            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.hidden_state_all_TEST, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TEST")
-            plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
+            # plotFirstThreePredictions(self, self.num_test_ICS_for_training, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TRAIN")
+            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TEST")
+            # plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
             plotSpectrum(self, self.sp_true_TEST, self.sp_pred_TEST, self.freq_true_TEST, self.freq_pred_TEST, "TEST")
 
     def plotSavedResult(self):
@@ -592,9 +606,9 @@ class ParalleledESN(object):
             os.makedirs(self.saving_path + self.fig_dir + self.model_name, exist_ok=True)
             # plot the test result on train and test data set
             self.loadResult()
-            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.hidden_state_all_TRAIN, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TRAIN")
-            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.hidden_state_all_TEST, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TEST")
-            plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
+            # plotFirstThreePredictions(self, self.num_test_ICS_for_training, self.targets_all_TRAIN, self.predictions_all_TRAIN, self.rmse_all_TRAIN, self.rmnse_all_TRAIN, self.testing_ic_indexes_TRAIN, self.dt_TRAIN, self.data_mle_TRAIN, self.targets_augment_all_TRAIN, self.predictions_augment_all_TRAIN, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TRAIN")
+            plotFirstThreePredictions(self, self.num_test_ICS, self.targets_all_TEST, self.predictions_all_TEST, self.rmse_all_TEST, self.rmnse_all_TEST, self.testing_ic_indexes_TEST, self.dt_TEST, self.data_mle_TEST, self.targets_augment_all_TEST, self.predictions_augment_all_TEST, self.dynamics_length, self.scaler.data_std_for_all_reservoirs, "TEST")
+            # plotSpectrum(self, self.sp_true_TRAIN, self.sp_pred_TRAIN, self.freq_true_TRAIN, self.freq_pred_TRAIN, "TRAIN")
             plotSpectrum(self, self.sp_true_TEST, self.sp_pred_TEST, self.freq_true_TEST, self.freq_pred_TEST, "TEST")
 
     def saveResults(self):
@@ -606,11 +620,15 @@ class ParalleledESN(object):
                 writeToTestLogFile(logfile_test, self)
             data = {}
             data["model_name"] = self.model_name
+
+            ## used for plotting saved results
             data["num_test_ICS"] = self.num_test_ICS
-            data["scaler"] = self.scaler    ## used for plotting saved results
+            data["num_test_ICS_for_training"] = self.num_test_ICS_for_training
+            data["scaler"] = self.scaler    
+            
             for var_name in getNamesInterestingVars():
                 exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-                exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
+                # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
             data_path = self.saving_path + self.results_dir + self.model_name + "/evaluation_results.pickle"
             with open(data_path, "wb") as file:
                 # Pickle the "data" dictionary using the highest protocol available.
@@ -618,7 +636,7 @@ class ParalleledESN(object):
 
             for var_name in getSequencesInterestingVars():
                 exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-                exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
+                # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
             data_path = self.saving_path + self.results_dir + self.model_name + "/results.pickle"
             with open(data_path, "wb") as file:
                 # Pickle the "data" dictionary using the highest protocol available.
@@ -633,12 +651,14 @@ class ParalleledESN(object):
             data = pickle.load(file)
             # load result on train/test data
             for var_name in getNamesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
             for var_name in getSequencesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
             self.scaler = data["scaler"]    ## used for plotting saved results
+            self.num_test_ICS =  data["num_test_ICS"] 
+            self.num_test_ICS_for_training = data["num_test_ICS_for_training"] 
             del data
         return 0
         
@@ -654,8 +674,8 @@ class ParalleledESN(object):
             data["model_name"] = self.model_name
             data["num_test_ICS"] = self.num_test_ICS
             for var_name in getNamesInterestingVars():
+                # exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
                 exec("data['{:s}_TEST'] = self.{:s}_TEST".format(var_name, var_name))
-                exec("data['{:s}_TRAIN'] = self.{:s}_TRAIN".format(var_name, var_name))
             data_path = self.saving_path + self.results_dir + self.model_name + "/evaluation_results.pickle"
             with open(data_path, "wb") as file:
                 # Pickle the "data" dictionary using the highest protocol available.
@@ -670,7 +690,7 @@ class ParalleledESN(object):
             data = pickle.load(file)
             # load result on train/test data
             for var_name in getNamesInterestingVars():
-                exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
+                # exec("self.{:s}_TRAIN = data['{:s}_TRAIN']".format(var_name, var_name))
                 exec("self.{:s}_TEST = data['{:s}_TEST']".format(var_name, var_name))
         return data
     

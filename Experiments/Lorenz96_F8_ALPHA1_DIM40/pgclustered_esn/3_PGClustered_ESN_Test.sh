@@ -14,10 +14,10 @@ python3 RUN.py pgclustered_esn \
 --RDIM 40 \
 --noise_level 5 \
 --scaler Standard \
---approx_reservoir_size 40 \
+--approx_reservoir_size 500 \
 --sparsity 1 \
 --p_in 1 \
---radius 0.9 \
+--radius 0.4 \
 --sigma_input 0.1 \
 --regularization 0.01 \
 --dynamics_length 2000 \

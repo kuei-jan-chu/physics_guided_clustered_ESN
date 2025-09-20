@@ -14,11 +14,11 @@ python3 RUN.py randomly_clustered_esn \
 --RDIM 40 \
 --noise_level 5 \
 --scaler Standard \
---approx_reservoir_size 80 \
+--approx_reservoir_size 1500 \
 --sparsity 0.1 \
 --p_in 0.1 \
---radius 0.1 \
---sigma_input 0.1 \
+--radius 0.99 \
+--sigma_input 0.5 \
 --regularization 0.01 \
 --dynamics_length 2000 \
 --iterative_prediction_length 7000 \

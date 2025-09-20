@@ -14,7 +14,7 @@ python3 RUN.py randomly_clustered_esn \
 --RDIM 40 \
 --noise_level 5 \
 --scaler Standard \
---approx_reservoir_size 1000 \
+--approx_reservoir_size 1500 \
 --sparsity 0.1 \
 --p_in 0.1 \
 --radius 0.99 \
