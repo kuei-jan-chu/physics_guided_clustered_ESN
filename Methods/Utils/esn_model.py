@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-# # -*- coding: utf-8 -*-
-
-"""Created by: Vlachas Pantelis, CSE-lab, ETH Zurich
-"""
-#!/usr/bin/env python
-
-# TORCH
 import sys
 from Config.global_conf import global_params
 sys.path.insert(0, global_params.global_utils_path)

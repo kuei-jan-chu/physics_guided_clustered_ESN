@@ -1,6 +1,3 @@
-"""Created by: Vlachas Pantelis, CSE-lab, ETH Zurich
-"""
-#!/usr/bin/env python
 import os
 import sys
 import numpy as np

@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# # -*- coding: utf-8 -*-
-
-"""Created by: Vlachas Pantelis, CSE-lab, ETH Zurich
-"""
 import numpy as np
 import os # for saving
 import pickle
